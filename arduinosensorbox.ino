@@ -5,17 +5,17 @@
 struct gps {
 	float latitude;
 	float longitude;
-} GPS_t;
+};
 struct gps_small {
 	int latitude;
 	int longitude;
-} GPS_SMALL_t;
-struct {
+};
+struct data {
   short temperature;
   short pressure;
   short humidity;
 	struct gps_small gps;
-} Data_t;
+};
 
 //#define DHTTYPE DHT11   // DHT 11
 //#define DHTTYPE DHT21   // DHT 21 (AM2301)
@@ -29,22 +29,21 @@ const int MINUTE 60 * SECOND
 double temperature;
 short pressure;
 double humidity;
-GPS_t gps;
+struct gps gps;
 
 void setup() {
-
 
 }
 
 void loop() {
 	get_data();
-	Data_t data = converfortransfer();
+	struct data data = converfortransfer();
 
 	delay(MINUTE);
 }
 // Shortening data for easiier transfer via LoraWan
-Data_t converfortransfer() {
-	Data_t package;
+struct data converfortransfer() {
+	struct data package;
   package.temperature = temperature * 100;
 	package.pressure = pressure;
   package.humidity = humidity * 100;
