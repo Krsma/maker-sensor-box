@@ -1,5 +1,16 @@
 #include <DHT.h>
 #include <SPI.h>
+#include <SoftwareSerial.h>
+#include <Gpsneo.h>
+
+Gpsneo gps;
+
+
+char latitud[11];
+char latitudHemisphere[3];
+char longitud[11];
+char longitudMeridiano[3];
+
 
 // Structure definitions
 struct gps {
@@ -36,6 +47,7 @@ void setup() {
 }
 
 void loop() {
+
 	get_data();
 	struct data data = converfortransfer();
 
@@ -60,6 +72,9 @@ void get_data()
   // Read pressure data
 
   // Read gps data
-
+	gps.getDataGPRMC(latitud,
+                    latitudHemisphere,
+                    longitud,
+                    longitudMeridiano);
 
 }
