@@ -2,9 +2,42 @@
 #include <SPI.h>
 #include <SoftwareSerial.h>
 #include <Gpsneo.h>
+#include "Sodaq_RN2483.h"
+
+#define loraSerial Serial1
+#define beePin 20
+
+//#define DHTTYPE DHT11   // DHT 11
+//#define DHTTYPE DHT21   // DHT 21 (AM2301)
+#define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
+
+
+//lora keys
+// USE YOUR OWN KEYS!
+const uint8_t devAddr[4] =
+{
+	0x00, 0x00, 0x02, 0x03
+};
+// USE YOUR OWN KEYS!
+const uint8_t appSKey[16] =
+{
+	0x0D, 0x0E, 0x0A, 0x0D,
+	0x0B, 0x0E, 0x0E, 0x0F,
+	0x0C, 0x0A, 0x0F, 0x0E,
+	0x0B, 0x0A, 0x0B, 0x0E,
+};
+// USE YOUR OWN KEYS!
+const uint8_t nwkSKey[16] =
+{
+	0x0D, 0x0E, 0x0A, 0x0D,
+	0x0B, 0x0E, 0x0E, 0x0F,
+	0x0C, 0x0A, 0x0F, 0x0E,
+	0x0B, 0x0A, 0x0B, 0x0E,
+};
+//change keys before deployment
+
 
 Gpsneo gps;
-
 
 char latitud[11];
 char latitudHemisphere[3];
@@ -28,9 +61,7 @@ struct data {
 	struct gps_small gps;
 };
 
-//#define DHTTYPE DHT11   // DHT 11
-//#define DHTTYPE DHT21   // DHT 21 (AM2301)
-#define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
+
 DHT dht(DHTPIN, DHTTYPE);
 
 const int SECOND 1000
@@ -44,6 +75,14 @@ struct gps gps;
 
 void setup() {
 
+digitalWrite(beePin, HIGH)
+pinmode(beePin,OUTPUT)
+
+debugSerial.begin(57600);
+loraSerial.begin(LoRaBee.getDefaultBaudRate());
+
+loraBee.initABP(loraSerial,devaddr,appSKey,nwkSKey,true)
+
 }
 
 void loop() {
@@ -52,6 +91,7 @@ void loop() {
 	struct data data = converfortransfer();
 
 	delay(MINUTE);
+	//send(1,data,16);
 }
 // Shortening data for easiier transfer via LoraWan
 struct data converfortransfer() {
