@@ -2,41 +2,19 @@
 #include <SPI.h>
 #include <SoftwareSerial.h>
 #include <Gpsneo.h>
-#include "Sodaq_RN2483.h"
+#include <rn2xx3.h>
+#include "ttn_keys.h"
 
-#define loraSerial Serial1
-#define beePin 20
+#include "keys.h"
+
 
 //#define DHTTYPE DHT11   // DHT 11
 //#define DHTTYPE DHT21   // DHT 21 (AM2301)
 #define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
 
 
-//lora keys
-// USE YOUR OWN KEYS!
-const uint8_t devAddr[4] =
-{
-	0x00, 0x00, 0x02, 0x03
-};
-// USE YOUR OWN KEYS!
-const uint8_t appSKey[16] =
-{
-	0x0D, 0x0E, 0x0A, 0x0D,
-	0x0B, 0x0E, 0x0E, 0x0F,
-	0x0C, 0x0A, 0x0F, 0x0E,
-	0x0B, 0x0A, 0x0B, 0x0E,
-};
-// USE YOUR OWN KEYS!
-const uint8_t nwkSKey[16] =
-{
-	0x0D, 0x0E, 0x0A, 0x0D,
-	0x0B, 0x0E, 0x0E, 0x0F,
-	0x0C, 0x0A, 0x0F, 0x0E,
-	0x0B, 0x0A, 0x0B, 0x0E,
-};
-//change keys before deployment
 
-
+rn2xx3 myLora(Serial1);
 Gpsneo gps;
 
 char latitud[11];
@@ -44,6 +22,7 @@ char latitudHemisphere[3];
 char longitud[11];
 char longitudMeridiano[3];
 
+int lora_data[16];
 
 // Structure definitions
 struct gps {
@@ -78,23 +57,27 @@ void setup() {
 digitalWrite(beePin, HIGH)
 pinmode(beePin,OUTPUT)
 
+Serial.begin(57600);
+Serial1.begin(57600);
 debugSerial.begin(57600);
-loraSerial.begin(LoRaBee.getDefaultBaudRate());
 
-loraBee.initABP(loraSerial,devaddr,appSKey,nwkSKey,true)
-
+initialize_radio();
+delay(3000);
 }
 
 void loop() {
 
 	get_data();
 	struct data data = converfortransfer();
+  //lora_data = data  conversion from data struct to array
+  //myLora.txBytes(lora_data, 16);
 
 	delay(MINUTE);
-	//send(1,data,16);
+	
 }
 // Shortening data for easiier transfer via LoraWan
 struct data converfortransfer() {
+
 	struct data package;
   package.temperature = temperature * 100;
 	package.pressure = pressure;
@@ -116,5 +99,24 @@ void get_data()
                     latitudHemisphere,
                     longitud,
                     longitudMeridiano);
+
+}
+
+void initialize_radio()
+{
+
+delay(100);
+Serial1.flush();
+
+//hweui check????
+
+joined = myLora.initABP(DEV_ADDR, APP_SES_KEY, NWK_SES_KEY);
+while(!joined)
+  {
+    delay(MINUTE);
+    joined = myLora.init();
+
+  }
+
 
 }
