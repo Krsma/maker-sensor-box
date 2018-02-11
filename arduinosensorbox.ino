@@ -1,21 +1,16 @@
 #include <DHT.h>
 #include <SPI.h>
-#include <SoftwareSerial.h>
-#include <Gpsneo.h>
 #include <rn2xx3.h>
+#include <TinyGPS.h>
 #include "ttn_keys.h"
-
 #include "keys.h"
-
 
 //#define DHTTYPE DHT11   // DHT 11
 //#define DHTTYPE DHT21   // DHT 21 (AM2301)
 #define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
 
-
-
+TinyGPS gps;
 rn2xx3 myLora(Serial1);
-Gpsneo gps;
 
 char latitud[11];
 char latitudHemisphere[3];
