@@ -1,117 +1,234 @@
-#include <DHT.h>
+/*******************************************************************************
+ * Copyright (c) 2015 Thomas Telkamp and Matthijs Kooijman
+ *
+ * Permission is hereby granted, free of charge, to anyone
+ * obtaining a copy of this document and accompanying files,
+ * to do whatever they want with them without any restriction,
+ * including, but not limited to, copying, modification and redistribution.
+ * NO WARRANTY OF ANY KIND IS PROVIDED.
+ *
+ * This example sends a valid LoRaWAN packet with payload "Hello,
+ * world!", using frequency and encryption settings matching those of
+ * the The Things Network.
+ *
+ * This uses OTAA (Over-the-air activation), where where a DevEUI and
+ * application key is configured, which are used in an over-the-air
+ * activation procedure where a DevAddr and session keys are
+ * assigned/generated for use with all further communication.
+ *
+ * Note: LoRaWAN per sub-band duty-cycle limitation is enforced (1% in
+ * g1, 0.1% in g2), but not the TTN fair usage policy (which is probably
+ * violated by this sketch when left running for longer)!
+
+ * To use this sketch, first register your application and device with
+ * the things network, to set or generate an AppEUI, DevEUI and AppKey.
+ * Multiple devices can use the same AppEUI, but each device has its own
+ * DevEUI and AppKey.
+ *
+ * Do not forget to define the radio type correctly in config.h.
+ *
+ *******************************************************************************/
+
+#include <lmic.h>
+#include <hal/hal.h>
 #include <SPI.h>
-#include <rn2xx3.h>
 #include <TinyGPS.h>
-#include "ttn_keys.h"
-#include "keys.h"
 
-//#define DHTTYPE DHT11   // DHT 11
-//#define DHTTYPE DHT21   // DHT 21 (AM2301)
-#define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
+HardwareSerial GPSSerial(2);
 
+// This EUI must be in little-endian format, so least-significant-byte
+// first. When copying an EUI from ttnctl output, this means to reverse
+// the bytes. For TTN issued EUIs the last bytes should be 0xD5, 0xB3,
+// 0x70.
+static const u1_t PROGMEM APPEUI[8]={ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+void os_getArtEui (u1_t* buf) { memcpy_P(buf, APPEUI, 8);}
+
+// This should also be in little endian format, see above.
+static const u1_t PROGMEM DEVEUI[8]={ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+void os_getDevEui (u1_t* buf) { memcpy_P(buf, DEVEUI, 8);}
+
+// This key should be in big endian format (or, since it is not really a
+// number but a block of memory, endianness does not really apply). In
+// practice, a key taken from ttnctl can be copied as-is.
+// The key shown here is the semtech default key.
+static const u1_t PROGMEM APPKEY[16] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+void os_getDevKey (u1_t* buf) {  memcpy_P(buf, APPKEY, 16);}
+
+union {
+  long int int_data;
+  unsigned char array_data[4];
+} coord_union;
+
+unsigned char payload_data[9];
 TinyGPS gps;
-rn2xx3 myLora(Serial1);
 
-char latitud[11];
-char latitudHemisphere[3];
-char longitud[11];
-char longitudMeridiano[3];
+static osjob_t sendjob;
 
-int lora_data[16];
+// Schedule TX every this many seconds (might become longer due to duty
+// cycle limitations).
+const unsigned TX_INTERVAL = 60;
 
-// Structure definitions
-struct gps {
-	float latitude;
-	float longitude;
-};
-struct gps_small {
-	int latitude;
-	int longitude;
-};
-struct data {
-  short temperature;
-  short pressure;
-  short humidity;
-	struct gps_small gps;
+// Pin mapping
+const lmic_pinmap lmic_pins = {
+    .nss = 18,
+    .rxtx = LMIC_UNUSED_PIN,
+    .rst = 14,
+    .dio = {26, 33, 32},
 };
 
+void prepareData () {
+  bool newData = false;
 
-DHT dht(DHTPIN, DHTTYPE);
+  // Read GPS data from serial
+  for (unsigned long start = millis(); millis() - start < 1000;) {
+    while (GPSSerial.available()) {
+      char c = GPSSerial.read();
 
-const int SECOND 1000
-const int MINUTE 60 * SECOND
+      if (gps.encode(c)) {
+        newData = true;
+      }
+    }
+  }
+  float lat, lon;
+  char sats;
+  unsigned long age;
 
-// Globales defintions
-double temperature;
-short pressure;
-double humidity;
-struct gps gps;
+  // Convert data to readable
+  if (newData) {
+    gps.f_get_position(&lat, &lon, &age);
+    lat = lat == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : lat, 6;
+    lon = lon == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : lon, 6;
+    sats = (char) gps.satellites() == TinyGPS::GPS_INVALID_SATELLITES ? 0 : gps.satellites();
+  }
+
+  // Set latitude value
+  coord_union.int_data = lat * 1000000;
+  
+  payload_data[0] = coord_union.array_data[0];
+  payload_data[1] = coord_union.array_data[1];
+  payload_data[2] = coord_union.array_data[2];
+  payload_data[3] = coord_union.array_data[3];
+
+  // Set longitude value
+  coord_union.int_data = lon * 1000000;
+  
+  payload_data[4] = coord_union.array_data[0];
+  payload_data[5] = coord_union.array_data[1];
+  payload_data[6] = coord_union.array_data[2];
+  payload_data[7] = coord_union.array_data[3];
+
+  // Set satellites value
+  payload_data[8] = sats;
+  
+  Serial.println("Latitude: " + String(lat, 6));
+  Serial.println("Longitude: " + String(lon, 6));
+  Serial.println("Satellites: " + String(sats));
+}
+
+void onEvent (ev_t ev) {
+    Serial.print(os_getTime());
+    Serial.print(": ");
+    switch(ev) {
+        case EV_SCAN_TIMEOUT:
+            Serial.println(F("EV_SCAN_TIMEOUT"));
+            break;
+        case EV_BEACON_FOUND:
+            Serial.println(F("EV_BEACON_FOUND"));
+            break;
+        case EV_BEACON_MISSED:
+            Serial.println(F("EV_BEACON_MISSED"));
+            break;
+        case EV_BEACON_TRACKED:
+            Serial.println(F("EV_BEACON_TRACKED"));
+            break;
+        case EV_JOINING:
+            Serial.println(F("EV_JOINING"));
+            break;
+        case EV_JOINED:
+            Serial.println(F("EV_JOINED"));
+
+            // Disable link check validation (automatically enabled
+            // during join, but not supported by TTN at this time).
+            LMIC_setLinkCheckMode(0);
+            break;
+        case EV_RFU1:
+            Serial.println(F("EV_RFU1"));
+            break;
+        case EV_JOIN_FAILED:
+            Serial.println(F("EV_JOIN_FAILED"));
+            break;
+        case EV_REJOIN_FAILED:
+            Serial.println(F("EV_REJOIN_FAILED"));
+            break;
+            break;
+        case EV_TXCOMPLETE:
+            Serial.println(F("EV_TXCOMPLETE (includes waiting for RX windows)"));
+            if (LMIC.txrxFlags & TXRX_ACK)
+              Serial.println(F("Received ack"));
+            if (LMIC.dataLen) {
+              Serial.println(F("Received "));
+              Serial.println(LMIC.dataLen);
+              Serial.println(F(" bytes of payload"));
+            }
+            // Schedule next transmission
+            os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send);
+            break;
+        case EV_LOST_TSYNC:
+            Serial.println(F("EV_LOST_TSYNC"));
+            break;
+        case EV_RESET:
+            Serial.println(F("EV_RESET"));
+            break;
+        case EV_RXCOMPLETE:
+            // data received in ping slot
+            Serial.println(F("EV_RXCOMPLETE"));
+            break;
+        case EV_LINK_DEAD:
+            Serial.println(F("EV_LINK_DEAD"));
+            break;
+        case EV_LINK_ALIVE:
+            Serial.println(F("EV_LINK_ALIVE"));
+            break;
+         default:
+            Serial.println(F("Unknown event"));
+            break;
+    }
+}
+
+void do_send(osjob_t* j){
+    // Check if there is not a current TX/RX job running
+    if (LMIC.opmode & OP_TXRXPEND) {
+        Serial.println(F("OP_TXRXPEND, not sending"));
+    } else {
+        prepareData();
+        // Prepare upstream data transmission at the next possible time.
+        LMIC_setTxData2(1, payload_data, sizeof(payload_data), 0);
+        Serial.println(F("Packet queued"));
+    }
+    // Next TX is scheduled after TX_COMPLETE event.
+}
 
 void setup() {
+    Serial.begin(9600);
+    GPSSerial.begin(9600);
+    Serial.println(F("Starting"));
 
-digitalWrite(beePin, HIGH)
-pinmode(beePin,OUTPUT)
+    #ifdef VCC_ENABLE
+    // For Pinoccio Scout boards
+    pinMode(VCC_ENABLE, OUTPUT);
+    digitalWrite(VCC_ENABLE, HIGH);
+    delay(1000);
+    #endif
 
-Serial.begin(57600);
-Serial1.begin(57600);
-debugSerial.begin(57600);
+    // LMIC init
+    os_init();
+    // Reset the MAC state. Session and pending data transfers will be discarded.
+    LMIC_reset();
 
-initialize_radio();
-delay(3000);
+    // Start job (sending automatically starts OTAA too)
+    do_send(&sendjob);
 }
 
 void loop() {
-
-	get_data();
-	struct data data = converfortransfer();
-  //lora_data = data  conversion from data struct to array
-  //myLora.txBytes(lora_data, 16);
-
-	delay(MINUTE);
-	
-}
-// Shortening data for easiier transfer via LoraWan
-struct data converfortransfer() {
-
-	struct data package;
-  package.temperature = temperature * 100;
-	package.pressure = pressure;
-  package.humidity = humidity * 100;
-	package.gps.latitude = gps.latitude * 10000000;
-	package.gps.longitude = gps.longitude * 10000000;
-	return package;
-}
-void get_data()
-{
-  // Read humidity
-	humidity = dht.readHumidity();
-  // Read temperature as Celsius (the default)
-  temperature = dht.readTemperature();
-  // Read pressure data
-
-  // Read gps data
-	gps.getDataGPRMC(latitud,
-                    latitudHemisphere,
-                    longitud,
-                    longitudMeridiano);
-
-}
-
-void initialize_radio()
-{
-
-delay(100);
-Serial1.flush();
-
-//hweui check????
-
-joined = myLora.initABP(DEV_ADDR, APP_SES_KEY, NWK_SES_KEY);
-while(!joined)
-  {
-    delay(MINUTE);
-    joined = myLora.init();
-
-  }
-
-
+    os_runloop_once();
 }
