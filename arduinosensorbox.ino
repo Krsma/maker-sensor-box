@@ -33,6 +33,7 @@
 #include <hal/hal.h>
 #include <SPI.h>
 #include <TinyGPS.h>
+#include <DHT.h>
 
 HardwareSerial GPSSerial(2);
 
@@ -59,8 +60,9 @@ union {
   unsigned char array_data[4];
 } coord_union;
 
-unsigned char payload_data[9];
+unsigned char payload_data[11];
 TinyGPS gps;
+DHT dht(13, DHT11);
 
 static osjob_t sendjob;
 
@@ -90,8 +92,11 @@ void prepareData () {
     }
   }
   float lat, lon;
-  char sats;
+  char sats, temp, hum;
   unsigned long age;
+
+  temp = (char) dht.readTemperature();
+  hum = (char) dht.readHumidity();
 
   // Convert data to readable
   if (newData) {
@@ -120,9 +125,15 @@ void prepareData () {
   // Set satellites value
   payload_data[8] = sats;
   
+  // Set temperature and humidity
+  (isnan(temp)) ? payload_data[9] = 0 : payload_data[9] = temp;
+  (isnan(hum)) ? payload_data[10] = 0 : payload_data[10] = hum;
+
   Serial.println("Latitude: " + String(lat, 6));
   Serial.println("Longitude: " + String(lon, 6));
   Serial.println("Satellites: " + String(sats));
+  Serial.println("Temperature: " + String((int) temp));
+  Serial.println("Humidity: " + String((int) hum));
 }
 
 void onEvent (ev_t ev) {
@@ -211,6 +222,7 @@ void do_send(osjob_t* j){
 void setup() {
     Serial.begin(9600);
     GPSSerial.begin(9600);
+    dht.begin();
     Serial.println(F("Starting"));
 
     #ifdef VCC_ENABLE
