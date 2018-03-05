@@ -34,6 +34,7 @@
 #include <SPI.h>
 #include <TinyGPS.h>
 #include <DHT.h>
+#include <MQ135.h>
 
 HardwareSerial GPSSerial(2);
 
@@ -58,11 +59,12 @@ void os_getDevKey (u1_t* buf) {  memcpy_P(buf, APPKEY, 16);}
 union {
   long int int_data;
   unsigned char array_data[4];
-} coord_union;
+} int_union;
 
-unsigned char payload_data[11];
+unsigned char payload_data[15];
 TinyGPS gps;
 DHT dht(13, DHT11);
+MQ135 carbonDioxideSensor(12);
 
 static osjob_t sendjob;
 
@@ -94,9 +96,11 @@ void prepareData () {
   float lat, lon;
   char sats, temp, hum;
   unsigned long age;
+  float ppm;
 
   temp = (char) dht.readTemperature();
   hum = (char) dht.readHumidity();
+  ppm = carbonDioxideSensor.getPPM();
 
   // Convert data to readable
   if (newData) {
@@ -107,20 +111,20 @@ void prepareData () {
   }
 
   // Set latitude value
-  coord_union.int_data = lat * 1000000;
+  int_union.int_data = lat * 1000000;
   
-  payload_data[0] = coord_union.array_data[0];
-  payload_data[1] = coord_union.array_data[1];
-  payload_data[2] = coord_union.array_data[2];
-  payload_data[3] = coord_union.array_data[3];
+  payload_data[0] = int_union.array_data[0];
+  payload_data[1] = int_union.array_data[1];
+  payload_data[2] = int_union.array_data[2];
+  payload_data[3] = int_union.array_data[3];
 
   // Set longitude value
-  coord_union.int_data = lon * 1000000;
+  int_union.int_data = lon * 1000000;
   
-  payload_data[4] = coord_union.array_data[0];
-  payload_data[5] = coord_union.array_data[1];
-  payload_data[6] = coord_union.array_data[2];
-  payload_data[7] = coord_union.array_data[3];
+  payload_data[4] = int_union.array_data[0];
+  payload_data[5] = int_union.array_data[1];
+  payload_data[6] = int_union.array_data[2];
+  payload_data[7] = int_union.array_data[3];
 
   // Set satellites value
   payload_data[8] = sats;
@@ -129,11 +133,20 @@ void prepareData () {
   (isnan(temp)) ? payload_data[9] = 0 : payload_data[9] = temp;
   (isnan(hum)) ? payload_data[10] = 0 : payload_data[10] = hum;
 
+  // Set PPM
+  int_union.int_data = (int) (ppm * 100);
+
+  payload_data[11] = int_union.array_data[0];
+  payload_data[12] = int_union.array_data[1];
+  payload_data[13] = int_union.array_data[2];
+  payload_data[14] = int_union.array_data[3];
+
   Serial.println("Latitude: " + String(lat, 6));
   Serial.println("Longitude: " + String(lon, 6));
   Serial.println("Satellites: " + String(sats));
   Serial.println("Temperature: " + String((int) temp));
   Serial.println("Humidity: " + String((int) hum));
+  Serial.println("PPM: " + String(ppm));
 }
 
 void onEvent (ev_t ev) {
